@@ -1,0 +1,11 @@
+description: ESP32-C3-LCDkit 开发模板
+
+# BSP(esp32_c3_lcdkit)已迁移进本项目 bsp/ 目录,工程自包含、可独立 build。
+# 它的子依赖里,esp_lvgl_port / gc9a01 也在本项目 components/ 内;
+# button / knob / led_indicator / esp_codec_dev / lvgl / cmake_utilities
+# 由 component manager 从 ESP registry 自动下载到 managed_components/。
+dependencies:
+  idf:
+    version: ">=5.2"
+  esp32_c3_lcdkit:
+    path: ../bsp/esp32_c3_lcdkit

@@ -1,0 +1,16 @@
+# ESP-IDF 构建产物(可重新生成,不提交)
+build/
+managed_components/
+
+# 依赖锁(含本机相对路径,build 时由 idf_component.yml 自动重新生成)
+dependencies.lock
+
+# IDE / 工具本地配置(含本机绝对路径)
+.vscode/
+.claude/
+
+# 其他
+sdkconfig.old
+*.bin
+*.elf
+*.map

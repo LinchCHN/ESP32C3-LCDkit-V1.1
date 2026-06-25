@@ -1,0 +1,23 @@
+# ===== ESP32-C3-LCDkit 开发模板 默认配置 =====
+
+# 目标芯片
+CONFIG_IDF_TARGET="esp32c3"
+
+# BSP(esp32_c3_lcdkit)已在本项目 bsp/ 内,无需 bsp_selector 选择
+
+# 板载 4MB Flash
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+## ===== LVGL 9 ===== ##
+CONFIG_LV_CONF_SKIP=y
+CONFIG_LV_BUILD_EXAMPLES=n
+
+# 使用 CLIB 默认实现(减小对 newlib 的依赖)
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+CONFIG_LV_USE_CLIB_STRING=y
+
+## ===== 如需使用 SPIFFS,取消下面三行注释并放入 partitions.csv ===== ##
+# CONFIG_PARTITION_TABLE_CUSTOM=y
+# CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
