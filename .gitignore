@@ -14,3 +14,6 @@ sdkconfig.old
 *.bin
 *.elf
 *.map
+
+# WiFi 凭证(机密,绝不提交 git)
+wifi_config.h

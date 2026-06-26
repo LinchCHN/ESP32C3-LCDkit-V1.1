@@ -31,6 +31,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "nvs_flash.h"
+#include "esp_sntp.h"
+#include <time.h>
+#include <string.h>
+#include "wifi_config.h"
+#include "salary_cfg.h"
+#include "web_server.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -198,6 +208,77 @@ static void audio_play_tone(uint32_t freq_hz, int duration_ms, int volume)
 
 
 /* ====================================================================
+ * 5.5 WiFi 连接 + SNTP 对时
+ * ====================================================================
+ * WiFi 凭证在 wifi_config.h(已加入 .gitignore,不会提交 git)。
+ * 设备依次尝试里面列出的 WiFi,连上一个就用哪个,断了自动换下一个。
+ * 连上后 SNTP 同步到北京时间,圆环按真实时/分/秒走。
+ * 第 2 步会加 Web 配置页,届时可手机改 WiFi 和薪资参数(存 NVS)。
+ */
+static int s_wifi_idx = 0;
+static char s_ip_str[16] = "";        /* 连上 WiFi 后的 IP,屏幕显示供手机访问 */
+static bool s_web_started = false;
+
+static void wifi_connect_index(int idx)
+{
+    s_wifi_idx = idx;
+    wifi_config_t wc = {0};
+    strncpy((char *)wc.sta.ssid, s_wifi_list[idx].ssid, sizeof(wc.sta.ssid));
+    strncpy((char *)wc.sta.password, s_wifi_list[idx].pass, sizeof(wc.sta.password));
+    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    esp_wifi_set_config(WIFI_IF_STA, &wc);
+    esp_wifi_connect();
+    ESP_LOGI(TAG, "尝试连接 WiFi[%d]: %s", idx, s_wifi_list[idx].ssid);
+}
+
+static void wifi_event_handler(void *arg, esp_event_base_t base,
+                               int32_t id, void *data)
+{
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_connect_index((s_wifi_idx + 1) % WIFI_LIST_LEN);   /* 换下一个 */
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        const ip_event_got_ip_t *ev = (const ip_event_got_ip_t *)data;
+        snprintf(s_ip_str, sizeof(s_ip_str), IPSTR, IP2STR(&ev->ip_info.ip));
+        ESP_LOGI(TAG, "WiFi 已连上: %s  IP=%s  SNTP 对时中...", s_wifi_list[s_wifi_idx].ssid, s_ip_str);
+        if (!s_web_started) { web_server_start(); s_web_started = true; }
+    }
+}
+
+static void network_start(void)
+{
+    /* NVS:WiFi 驱动需要,后续也存薪资参数 */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&cfg);
+    esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                        wifi_event_handler, NULL, NULL);
+    esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                        wifi_event_handler, NULL, NULL);
+
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_start();
+    wifi_connect_index(0);                   /* 从第一个开始尝试 */
+
+    /* SNTP:同步后 time() 返回真实 epoch;时区设为中国(CST-8) */
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "ntp.aliyun.com");
+    esp_sntp_setservername(1, "pool.ntp.org");
+    esp_sntp_init();
+    setenv("TZ", "CST-8", 1);
+    tzset();
+}
+
+
+/* ====================================================================
  * 6. LCD 薪资可视化:三个嵌套圆环 + 中央赚钱速率
  * ====================================================================
  * 日薪 SALARY_DAY 按 24 小时均摊,得到时/分/秒的赚钱速率。
@@ -240,24 +321,27 @@ static lv_obj_t *salary_arc_create(lv_obj_t *parent, lv_coord_t size,
 /* 20fps 刷新:更新三环进度 + 中央金额 */
 static void salary_timer_cb(lv_timer_t *timer)
 {
-    int64_t us = esp_timer_get_time();          /* 微秒,从开机起 */
-    int64_t ms = us / 1000;
-    int ms_in_sec   = (int)(ms % 1000);             /* 秒内 0~999 */
-    int sec_in_min  = (int)((ms / 1000) % 60);      /* 分内 0~59秒 */
-    int min_in_hour = (int)((ms / 60000) % 60);     /* 时内 0~59分 */
+    /* 真实时间(SNTP 同步后)。同步前 time()≈0,圆环停在 0,连上网后自动走对 */
+    time_t now = time(NULL);
+    struct tm t;
+    localtime_r(&now, &t);
+    int ms = (int)((esp_timer_get_time() / 1000) % 1000);  /* 秒内毫秒,平滑过渡 */
 
-    /* 三环进度(0~1000):秒环用毫秒、分环用秒+毫秒、时环用分+秒,过渡更顺 */
-    lv_arc_set_value(s_arc_sec,   ms_in_sec);
-    lv_arc_set_value(s_arc_min,   (sec_in_min * 1000 + ms_in_sec) * 1000 / 60000);
-    lv_arc_set_value(s_arc_hour,  ((min_in_hour * 60 + sec_in_min) * 1000 + ms_in_sec) * 1000 / 3600000);
+    /* 三环:秒环(毫秒)/ 分环(秒)/ 时环(分),按真实时间走 */
+    lv_arc_set_value(s_arc_sec,   ms);
+    lv_arc_set_value(s_arc_min,   t.tm_sec * 1000 / 60);
+    lv_arc_set_value(s_arc_hour,  t.tm_min * 1000 / 60);
 
-    float total = (float)(us / 1000000) * SALARY_PER_SEC;
+    /* 中央:真实时间 + 速率(基于工作时长,第 3 步按工作时段累计) + IP */
     lv_label_set_text_fmt(s_lbl_salary,
+        "#FFFFFF %02d:%02d:%02d#\n"
         "#FFD700 ¥%.2f/h#\n"
         "#00E0C0 ¥%.2f/m#\n"
         "#7FB2FF ¥%.4f/s#\n"
-        "今日 #FFFFFF ¥%.2f#",
-        SALARY_PER_HOUR, SALARY_PER_MIN, SALARY_PER_SEC, total);
+        "#556677 %s#",
+        t.tm_hour, t.tm_min, t.tm_sec,
+        cfg_per_hour(), cfg_per_min(), cfg_per_sec(),
+        s_ip_str[0] ? s_ip_str : "WiFi 连接中");
 }
 
 static void create_salary_ui(void)
@@ -294,7 +378,13 @@ void app_main(void)
     /* 1) 显示 */
     lv_display_t *disp = init_display();
 
-    /* 2) 文件系统(默认未启用:无 spiffs 分区时调用会 abort,见 init_spiffs() 说明) */
+    /* 2) 联网 + SNTP 对时(WiFi 连上后自动校准北京时间,圆环按真实时间走) */
+    network_start();
+
+    /* 载入薪资参数(NVS,断电不丢;连上 WiFi 后可用手机 Web 页改) */
+    cfg_load();
+
+    /* 文件系统(默认未启用:无 spiffs 分区时调用会 abort,见 init_spiffs() 说明) */
     // init_spiffs();
 
     /* 3) LED(开机不亮,仅当编码器按下时微微亮) */
