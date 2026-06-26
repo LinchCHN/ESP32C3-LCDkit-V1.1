@@ -1,8 +1,11 @@
 #include "app_state.h"
 #include "salary_cfg.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 #include <time.h>
 #include <string.h>
+
+static const char *TAG = "APP";
 
 /* 番茄钟:25 分钟工作 + 5 分钟休息,循环。到点各提醒一下。 */
 #define POMO_WORK_SEC   (25 * 60)
@@ -111,7 +114,10 @@ void app_state_tick(void)
     }
 
     /* —— 下班提醒边沿(working -> off) —— */
-    if (s_last_working && !working) trigger_remind(now);
+    if (s_last_working && !working) {
+        trigger_remind(now);
+        ESP_LOGI(TAG, "到下班时间,触发提醒");
+    }
     s_last_working = working;
 
     /* —— 番茄钟推进 —— */
@@ -121,8 +127,10 @@ void app_state_tick(void)
             if (s_pomo == POMO_WORK) {
                 s_pomo = POMO_BREAK;
                 s_pomo_end = now + POMO_BREAK_SEC;
+                ESP_LOGI(TAG, "番茄钟: 工作段结束 → 休息 %d 分钟", POMO_BREAK_SEC / 60);
             } else {
                 s_pomo = POMO_IDLE;          /* 休息结束,等下次按 */
+                ESP_LOGI(TAG, "番茄钟: 休息结束,等待下次启动");
             }
         }
     }
@@ -197,20 +205,31 @@ void app_state_pomo_toggle(void)
         s_pomo = POMO_WORK;
         s_pomo_end = now + POMO_WORK_SEC;
         s_pomo_paused = false;
+        ESP_LOGI(TAG, "番茄钟: 启动工作段 %d 分钟", POMO_WORK_SEC / 60);
     } else if (!s_pomo_paused) {
         s_pomo_pause_remain = (int)difftime(s_pomo_end, now);
         if (s_pomo_pause_remain < 0) s_pomo_pause_remain = 0;
         s_pomo_paused = true;
+        ESP_LOGI(TAG, "番茄钟: 暂停(剩余 %ds)", s_pomo_pause_remain);
     } else {
         s_pomo_end = now + s_pomo_pause_remain;
         s_pomo_paused = false;
+        ESP_LOGI(TAG, "番茄钟: 恢复(剩余 %ds)", s_pomo_pause_remain);
     }
 }
 
 /* 打卡界面按键:记录上班时刻,下班 = 上班 + 工时 */
 void app_state_punch(void)
 {
+    const salary_cfg_t *c = cfg_get();
     s_punch_start = time(NULL);
     s_earned  = 0;        /* 以打卡为今日计时的零点 */
     s_last_us = 0;
+    time_t pend = s_punch_start + (time_t)(c->hours_per_day * 3600.0f);
+    struct tm ts, te;
+    localtime_r(&s_punch_start, &ts);
+    localtime_r(&pend,          &te);
+    ESP_LOGI(TAG, "打卡上班 %02d:%02d:%02d → 预计下班 %02d:%02d:%02d (工时 %.1fh)",
+             ts.tm_hour, ts.tm_min, ts.tm_sec,
+             te.tm_hour, te.tm_min, te.tm_sec, c->hours_per_day);
 }

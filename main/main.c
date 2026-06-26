@@ -195,6 +195,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     }
 }
 
+static void sntp_sync_cb(struct timeval *tv)
+{
+    time_t now = time(NULL);
+    struct tm t;
+    localtime_r(&now, &t);
+    ESP_LOGI(TAG, "SNTP 对时成功: %04d-%02d-%02d %02d:%02d:%02d",
+             t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+             t.tm_hour, t.tm_min, t.tm_sec);
+}
+
 static void network_start(void)
 {
     esp_err_t ret = nvs_flash_init();
@@ -221,6 +231,7 @@ static void network_start(void)
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "ntp.aliyun.com");
     esp_sntp_setservername(1, "pool.ntp.org");
+    esp_sntp_set_time_sync_notification_cb(sntp_sync_cb);
     esp_sntp_init();
     setenv("TZ", "CST-8", 1);
     tzset();
@@ -235,12 +246,14 @@ void app_main(void)
     ESP_LOGI(TAG, "薪资可视化固件启动");
 
     lv_display_t *disp = init_display();
+    ESP_LOGI(TAG, "显示初始化 OK");
 
     network_start();          /* WiFi + SNTP(连上后圆环按真实时间走) */
     cfg_load();               /* 薪资参数(NVS,可用手机 Web 页改) */
 
     init_led();
     xTaskCreate(encoder_led_task, "enc_led", 3072, NULL, 5, NULL);
+    ESP_LOGI(TAG, "RGB 任务已启动(按下微亮 / 提醒彩虹)");
 
     init_audio();
     audio_play_tone(1000, 300, 50);      /* 开机提示音 */

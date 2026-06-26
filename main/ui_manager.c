@@ -4,6 +4,9 @@
 #include "screen_punch.h"
 #include "app_state.h"
 #include "bsp/esp-bsp.h"
+#include "esp_log.h"
+
+static const char *TAG = "UI";
 
 /* 三界面 + 各自的 screen 对象 + 焦点标记(挂 layer_top,不随界面切换) */
 static const screen_t *s_screens[3];
@@ -21,6 +24,8 @@ static void focused_cb(lv_event_t *e)
     s_cur = idx;
     lv_scr_load(s_scr_objs[idx]);
     s_screens[idx]->update();        /* 切换后立即刷新,避免闪旧值 */
+    static const char *names[] = {"主界面", "信息界面", "打卡界面"};
+    ESP_LOGI(TAG, "切换到 %s", names[idx]);
 }
 
 /* 编码器按下(GPIO9 边沿,见 main.c 的 encoder_led_task):交给当前焦点界面。
@@ -67,4 +72,5 @@ void ui_manager_init(void)
     app_state_tick();
     s_screens[0]->update();
     lv_timer_create(tick_cb, 100, NULL);   /* 10fps */
+    ESP_LOGI(TAG, "UI 就绪: 3 界面 + 编码器,进入主界面");
 }
