@@ -30,6 +30,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -197,6 +198,93 @@ static void audio_play_tone(uint32_t freq_hz, int duration_ms, int volume)
 
 
 /* ====================================================================
+ * 6. LCD 薪资可视化:三个嵌套圆环 + 中央赚钱速率
+ * ====================================================================
+ * 日薪 SALARY_DAY 按 24 小时均摊,得到时/分/秒的赚钱速率。
+ * 三个同心圆环像三层时钟:
+ *   外环(金) = 当前小时内的进度(0~60分)
+ *   中环(青) = 当前分钟内的进度(0~60秒)
+ *   内环(蓝) = 当前秒钟内的进度(0~1000ms,毫秒级平滑转)
+ * 中央显示每小时/每分/每秒加的金额,以及今日累计。
+ * 改 SALARY_DAY 即可调整薪资;时间从开机起用 esp_timer 计时。
+ */
+#define SALARY_DAY       400.0f                 /* 日薪(元/天)。400/24≈16.67元/时 */
+#define SALARY_PER_SEC   (SALARY_DAY / 86400.0f)
+#define SALARY_PER_MIN   (SALARY_PER_SEC * 60.0f)
+#define SALARY_PER_HOUR  (SALARY_PER_SEC * 3600.0f)
+
+static lv_obj_t *s_arc_hour, *s_arc_min, *s_arc_sec, *s_lbl_salary;
+
+/* 创建一个圆环(arc)。size=直径,width=线宽,color=进度弧颜色 */
+static lv_obj_t *salary_arc_create(lv_obj_t *parent, lv_coord_t size,
+                                   lv_coord_t width, lv_color_t color)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+    lv_obj_set_size(arc, size, size);
+    lv_obj_center(arc);
+    lv_arc_set_rotation(arc, 270);              /* 起点转到正上方(12点) */
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_range(arc, 0, 1000);             /* 高分辨率,毫秒级平滑 */
+    lv_arc_set_value(arc, 0);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);       /* 去掉旋钮圆点 */
+    lv_obj_set_style_arc_width(arc, width, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x202838), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, false, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    return arc;
+}
+
+/* 20fps 刷新:更新三环进度 + 中央金额 */
+static void salary_timer_cb(lv_timer_t *timer)
+{
+    int64_t us = esp_timer_get_time();          /* 微秒,从开机起 */
+    int64_t ms = us / 1000;
+    int ms_in_sec   = (int)(ms % 1000);             /* 秒内 0~999 */
+    int sec_in_min  = (int)((ms / 1000) % 60);      /* 分内 0~59秒 */
+    int min_in_hour = (int)((ms / 60000) % 60);     /* 时内 0~59分 */
+
+    /* 三环进度(0~1000):秒环用毫秒、分环用秒+毫秒、时环用分+秒,过渡更顺 */
+    lv_arc_set_value(s_arc_sec,   ms_in_sec);
+    lv_arc_set_value(s_arc_min,   (sec_in_min * 1000 + ms_in_sec) * 1000 / 60000);
+    lv_arc_set_value(s_arc_hour,  ((min_in_hour * 60 + sec_in_min) * 1000 + ms_in_sec) * 1000 / 3600000);
+
+    float total = (float)(us / 1000000) * SALARY_PER_SEC;
+    lv_label_set_text_fmt(s_lbl_salary,
+        "#FFD700 ¥%.2f/h#\n"
+        "#00E0C0 ¥%.2f/m#\n"
+        "#7FB2FF ¥%.4f/s#\n"
+        "今日 #FFFFFF ¥%.2f#",
+        SALARY_PER_HOUR, SALARY_PER_MIN, SALARY_PER_SEC, total);
+}
+
+static void create_salary_ui(void)
+{
+    lv_obj_t *scr = lv_disp_get_scr_act(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101820), 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* 外环=时(金),中环=分(青),内环=秒(蓝) —— 同心嵌套 */
+    s_arc_hour = salary_arc_create(scr, 220, 9, lv_color_hex(0xFFD700));
+    s_arc_min  = salary_arc_create(scr, 170, 9, lv_color_hex(0x00E0C0));
+    s_arc_sec  = salary_arc_create(scr, 120, 9, lv_color_hex(0x7FB2FF));
+
+    /* 中央金额文字 */
+    s_lbl_salary = lv_label_create(scr);
+    lv_label_set_recolor(s_lbl_salary, true);
+    lv_obj_set_style_text_align(s_lbl_salary, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(s_lbl_salary, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_line_space(s_lbl_salary, 3, 0);
+    lv_obj_center(s_lbl_salary);
+
+    salary_timer_cb(NULL);                      /* 先填一次,避免首帧空白 */
+    lv_timer_create(salary_timer_cb, 50, NULL); /* 20fps 刷新 */
+}
+
+
+/* ====================================================================
  * 入口
  * ==================================================================== */
 void app_main(void)
@@ -217,15 +305,9 @@ void app_main(void)
     init_audio();
     audio_play_tone(1000, 300, 50);
 
-    /* 5) 画一个简单的 LVGL 界面 */
+    /* 5) 薪资可视化:三个嵌套圆环(时/分/秒进度)+ 中央赚钱速率 */
     bsp_display_lock(0);
-    lv_obj_t *scr = lv_disp_get_scr_act(NULL);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101820), 0);
-
-    lv_obj_t *label = lv_label_create(scr);
-    lv_label_set_text(label, "ESP32-C3-LCDkit\nReady!");
-    lv_obj_set_style_text_color(label, lv_color_hex(0x00E0C0), 0);
-    lv_obj_center(label);
+    create_salary_ui();
     bsp_display_unlock();
 
     ESP_LOGI(TAG, "初始化完成,开始你的开发");
