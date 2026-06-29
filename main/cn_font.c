@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 16 px
  * Bpp: 4
- * Opts: --font C:/Windows/Fonts/simhei.ttf --size 16 --bpp 4 --format lvgl --no-compress --range 0x20-0x7F --symbols 工作中已下班未到上加班暂停时分秒今日月薪天配参连接¥：番茄休息打卡按确认赚 -o cn_font.c
+ * Opts: --font C:/Windows/Fonts/simhei.ttf --size 16 --bpp 4 --format lvgl --no-compress --range 0x20-0x7F --range 0xFFE5 --symbols 工作中已下班未到上加班暂停时分秒今日月薪天配参连接：番茄休息打卡按确认赚 -o cn_font.c
  ******************************************************************************/
 
 #include "lvgl.h"
@@ -1227,7 +1227,18 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
 
     /* U+FF1A "：" */
     0x11, 0xf, 0xf1, 0xff, 0x10, 0x0, 0x11, 0xf,
-    0xf1, 0xff, 0x10
+    0xf1, 0xff, 0x10,
+
+    /* U+FFE5 "￥" */
+    0x10, 0x0, 0x0, 0x0, 0x11, 0x7, 0xe2, 0x0,
+    0x0, 0x2e, 0x70, 0x8, 0xd1, 0x0, 0x1d, 0x90,
+    0x0, 0xa, 0xd1, 0xc, 0xa0, 0x0, 0x0, 0xb,
+    0xdb, 0xb0, 0x0, 0x0, 0x0, 0xd, 0xd0, 0x0,
+    0x0, 0x3e, 0xee, 0xff, 0xee, 0xe0, 0x0, 0x0,
+    0xa, 0xa0, 0x0, 0x0, 0x0, 0x0, 0xaa, 0x0,
+    0x0, 0x0, 0x0, 0xa, 0xa0, 0x0, 0x0, 0x0,
+    0x0, 0xaa, 0x0, 0x0, 0x0, 0x0, 0x4, 0x40,
+    0x0, 0x0
 };
 
 
@@ -1366,7 +1377,8 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 7037, .adv_w = 256, .box_w = 16, .box_h = 17, .ofs_x = 0, .ofs_y = -3},
     {.bitmap_index = 7173, .adv_w = 256, .box_w = 16, .box_h = 14, .ofs_x = 0, .ofs_y = -1},
     {.bitmap_index = 7285, .adv_w = 256, .box_w = 16, .box_h = 15, .ofs_x = 0, .ofs_y = -2},
-    {.bitmap_index = 7405, .adv_w = 256, .box_w = 3, .box_h = 7, .ofs_x = 3, .ofs_y = 0}
+    {.bitmap_index = 7405, .adv_w = 256, .box_w = 3, .box_h = 7, .ofs_x = 3, .ofs_y = 0},
+    {.bitmap_index = 7416, .adv_w = 256, .box_w = 11, .box_h = 12, .ofs_x = 3, .ofs_y = 0}
 };
 
 /*---------------------
@@ -1378,7 +1390,7 @@ static const uint16_t unicode_list_1[] = {
     0x426, 0x496, 0x557, 0x5b8, 0xb1f, 0xfdb, 0xfe8, 0x1265,
     0x1449, 0x14ff, 0x159b, 0x17db, 0x17ec, 0x1878, 0x18fe, 0x1920,
     0x25e3, 0x2760, 0x2a64, 0x2bc8, 0x34fa, 0x37a0, 0x3d9a, 0x3f50,
-    0x41d4, 0x4343, 0xb110
+    0x41d4, 0x4343, 0xb110, 0xb1db
 };
 
 /*Collect the unicode lists and glyph_id offsets*/
@@ -1389,8 +1401,8 @@ static const lv_font_fmt_txt_cmap_t cmaps[] =
         .unicode_list = NULL, .glyph_id_ofs_list = NULL, .list_length = 0, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY
     },
     {
-        .range_start = 19978, .range_length = 45329, .glyph_id_start = 96,
-        .unicode_list = unicode_list_1, .glyph_id_ofs_list = NULL, .list_length = 35, .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY
+        .range_start = 19978, .range_length = 45532, .glyph_id_start = 96,
+        .unicode_list = unicode_list_1, .glyph_id_ofs_list = NULL, .list_length = 36, .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY
     }
 };
 

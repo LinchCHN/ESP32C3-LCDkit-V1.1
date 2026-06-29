@@ -24,9 +24,9 @@ static void screen_info_update(void)
 {
     const app_view_t *v = app_state_get();
     lv_label_set_text_fmt(s_lbl,
-        "#FFD700 ¥%.2f/时#\n"
-        "#00E0C0 ¥%.3f/分#\n"
-        "#7FB2FF ¥%.5f/秒#\n"
+        "#FFD700 ￥%.2f/时#\n"
+        "#00E0C0 ￥%.3f/分#\n"
+        "#7FB2FF ￥%.5f/秒#\n"
         "\n"
         "#888888 月薪%.0f %d天 %.1f时#\n"
         "#888888 已赚%.1f天#\n"

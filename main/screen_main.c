@@ -64,7 +64,7 @@ static void screen_main_update(void)
         "#FFFFFF %02d:%02d:%02d#\n"
         "%s\n"
         "#AAAAAA 已工作 %d时%d分#\n"
-        "#FFD700 今日 ¥%.2f#",
+        "#FFD700 今日 ￥%.2f#",
         v->hh, v->mm, v->ss, line2, wh, wm, v->earned_today);
 }
 
