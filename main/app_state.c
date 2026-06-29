@@ -2,6 +2,7 @@
 #include "salary_cfg.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "nvs_flash.h"
 #include <time.h>
 #include <string.h>
 
@@ -12,6 +13,11 @@ static const char *TAG = "APP";
 #define POMO_BREAK_SEC  (5  * 60)
 #define REMIND_SEC      2          /* 提醒持续秒数(RGB 闪 + 响铃) */
 
+/* 打卡持久化(断电/重启不丢,跨天自动失效) */
+#define PUNCH_NVS       "punch"
+#define PUNCH_KEY_START "start"
+#define PUNCH_KEY_DATE  "date"
+
 static app_view_t s_view;
 
 /* —— 计时/状态 —— */
@@ -21,12 +27,13 @@ static bool    s_last_working = false;
 
 /* —— 打卡 —— */
 static time_t  s_punch_start = 0;     /* 0 = 未打卡;>0 = 上班打卡时刻 */
+static int     s_punch_date  = 0;     /* 打卡那天 ymd,用于跨天失效判断 */
 
 /* —— 番茄钟 —— */
 static pomo_phase_t s_pomo = POMO_IDLE;
-static time_t s_pomo_end = 0;         /* 当前阶段结束时刻 */
+static time_t s_pomo_end = 0;
 static bool   s_pomo_paused = false;
-static int    s_pomo_pause_remain = 0;/* 暂停时记下的剩余秒 */
+static int    s_pomo_pause_remain = 0;
 
 /* —— 提醒 —— */
 static volatile time_t s_remind_until = 0;
@@ -64,6 +71,47 @@ static int month_days(const struct tm *t)
     return eot.tm_mday;
 }
 
+/* 今天 ymd(如 20260626),用于判断打卡是否跨天 */
+static int today_key(void)
+{
+    time_t now = time(NULL);
+    struct tm t;
+    localtime_r(&now, &t);
+    return (t.tm_year + 1900) * 10000 + (t.tm_mon + 1) * 100 + t.tm_mday;
+}
+
+/* 把打卡(上班时刻 + 那天 ymd)存进 NVS */
+static void save_punch(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(PUNCH_NVS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_blob(h, PUNCH_KEY_START, &s_punch_start, sizeof(s_punch_start));
+        nvs_set_blob(h, PUNCH_KEY_DATE,  &s_punch_date,  sizeof(s_punch_date));
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+/* 启动时从 NVS 恢复打卡;跨天的丢弃 */
+void app_state_init(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(PUNCH_NVS, NVS_READONLY, &h) == ESP_OK) {
+        size_t len = sizeof(s_punch_start);
+        nvs_get_blob(h, PUNCH_KEY_START, &s_punch_start, &len);
+        len = sizeof(s_punch_date);
+        nvs_get_blob(h, PUNCH_KEY_DATE,  &s_punch_date,  &len);
+        nvs_close(h);
+    }
+    if (s_punch_start > 0 && s_punch_date != today_key()) {
+        ESP_LOGI(TAG, "上次打卡在 %d,今天 %d,已跨天失效", s_punch_date, today_key());
+        s_punch_start = 0;
+        s_punch_date  = 0;
+    } else if (s_punch_start > 0) {
+        ESP_LOGI(TAG, "恢复今日(%d)的打卡", s_punch_date);
+    }
+}
+
 void app_state_tick(void)
 {
     const salary_cfg_t *c = cfg_get();
@@ -71,15 +119,23 @@ void app_state_tick(void)
     struct tm t;
     localtime_r(&now, &t);
 
+    /* 跨天:昨天的打卡自动失效 */
+    if (s_punch_start > 0 && s_punch_date != today_key()) {
+        s_punch_start = 0;
+        s_punch_date  = 0;
+    }
+
     /* —— 工作窗口 / 已工作秒 / 是否工作 —— */
     time_t wstart = 0, wend = 0;
     int   worked_sec = 0;
     bool  working = false;
 
     if (s_punch_start > 0) {
-        /* 已打卡:窗口 = 打卡时刻 .. 打卡时刻 + 工时 */
+        /* 已打卡:窗口 = 打卡时刻 .. 打卡时刻 + 工时 (午休不算入工时则顺延) */
         wstart = s_punch_start;
-        wend   = s_punch_start + (time_t)(c->hours_per_day * 3600.0f);
+        int lunch_extra = c->lunch_counts ? 0 : c->lunch_min;
+        wend   = s_punch_start + (time_t)(c->hours_per_day * 3600.0f)
+                 + (time_t)(lunch_extra * 60);
         if (now < wstart)        { worked_sec = 0;                          working = false; }
         else if (now < wend)     { worked_sec = (int)difftime(now, wstart); working = true;  }
         else                     { worked_sec = (int)difftime(wend, wstart);working = false; }
@@ -141,9 +197,8 @@ void app_state_tick(void)
     s_view.punched = (s_punch_start > 0);
 
     struct tm ws2, we2;
-    time_t s_for_view = (s_punch_start > 0) ? s_punch_start : wstart;
-    localtime_r(&s_for_view, &ws2);
-    localtime_r(&wend,        &we2);
+    localtime_r(&s_punch_start, &ws2);
+    localtime_r(&wend,          &we2);
     s_view.punch_sh = ws2.tm_hour; s_view.punch_sm = ws2.tm_min;
     s_view.punch_eh = we2.tm_hour; s_view.punch_em = we2.tm_min;
 
@@ -218,18 +273,34 @@ void app_state_pomo_toggle(void)
     }
 }
 
-/* 打卡界面按键:记录上班时刻,下班 = 上班 + 工时 */
-void app_state_punch(void)
+/* 按指定上班时间打卡(调时确认用);下班 = 上班 + 工时,存 NVS */
+void app_state_punch_at(int hour, int min)
 {
     const salary_cfg_t *c = cfg_get();
-    s_punch_start = time(NULL);
+    time_t now = time(NULL);
+    struct tm t;
+    localtime_r(&now, &t);
+    t.tm_hour = hour; t.tm_min = min; t.tm_sec = 0;
+    s_punch_start = mktime(&t);
+    s_punch_date  = today_key();
     s_earned  = 0;        /* 以打卡为今日计时的零点 */
     s_last_us = 0;
-    time_t pend = s_punch_start + (time_t)(c->hours_per_day * 3600.0f);
+    save_punch();
+    int lunch_extra = c->lunch_counts ? 0 : c->lunch_min;
+    time_t pend = s_punch_start + (time_t)(c->hours_per_day * 3600.0f)
+                  + (time_t)(lunch_extra * 60);
     struct tm ts, te;
     localtime_r(&s_punch_start, &ts);
     localtime_r(&pend,          &te);
-    ESP_LOGI(TAG, "打卡上班 %02d:%02d:%02d → 预计下班 %02d:%02d:%02d (工时 %.1fh)",
-             ts.tm_hour, ts.tm_min, ts.tm_sec,
-             te.tm_hour, te.tm_min, te.tm_sec, c->hours_per_day);
+    ESP_LOGI(TAG, "打卡上班 %02d:%02d → 预计下班 %02d:%02d (工时 %.1fh + 午休%d分)",
+             ts.tm_hour, ts.tm_min, te.tm_hour, te.tm_min, c->hours_per_day, lunch_extra);
+}
+
+/* 用当前时间打卡 */
+void app_state_punch(void)
+{
+    time_t now = time(NULL);
+    struct tm t;
+    localtime_r(&now, &t);
+    app_state_punch_at(t.tm_hour, t.tm_min);
 }

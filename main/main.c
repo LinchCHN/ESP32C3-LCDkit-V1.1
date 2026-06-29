@@ -130,13 +130,25 @@ static void encoder_led_task(void *arg)
     static int  hue = 0;
     static bool last_pressed = false;
     static bool last_remind = false;
+    static int64_t press_us = 0;
+    static bool    long_fired = false;
     bool        lit = false;
     while (1) {
         bool pressed = (gpio_get_level(BSP_ENCODER_PRESS) == 0);
         bool remind  = app_state_remind_active();
 
+        /* 长短按:按下记时刻,持续 ≥1s 触发长按;松开时按是否长按分发 */
         if (pressed && !last_pressed) {
-            ui_manager_press();              /* 按下边沿:交给当前界面(番茄钟/打卡) */
+            press_us = esp_timer_get_time();
+            long_fired = false;
+        }
+        if (pressed && !long_fired && (esp_timer_get_time() - press_us) >= 1000000) {
+            ui_manager_long_press();         /* 长按进入(打卡界面 = 调时) */
+            long_fired = true;
+        }
+        if (!pressed && last_pressed) {
+            if (long_fired) ui_manager_release();   /* 长按后松开:确认打卡 */
+            else            ui_manager_press();     /* 短按(主界面 = 番茄钟) */
         }
         last_pressed = pressed;
 
@@ -157,6 +169,7 @@ static void encoder_led_task(void *arg)
                 ? SET_IRGB(0, ENC_LED_DIM_LEVEL, ENC_LED_DIM_LEVEL, ENC_LED_DIM_LEVEL)
                 : SET_IRGB(0, 0x00, 0x00, 0x00));
         }
+
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
@@ -250,6 +263,7 @@ void app_main(void)
 
     network_start();          /* WiFi + SNTP(连上后圆环按真实时间走) */
     cfg_load();               /* 薪资参数(NVS,可用手机 Web 页改) */
+    app_state_init();         /* 从 NVS 恢复今日打卡(跨天自动失效) */
 
     init_led();
     xTaskCreate(encoder_led_task, "enc_led", 3072, NULL, 5, NULL);

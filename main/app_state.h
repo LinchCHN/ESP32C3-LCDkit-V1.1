@@ -31,5 +31,7 @@ const app_view_t *app_state_get(void);
 void app_state_tick(void);             /* 10fps:更新全部字段 + 提醒边沿 */
 void app_state_pomo_toggle(void);      /* 主界面按键:番茄钟 启动/暂停/恢复 */
 void app_state_punch(void);            /* 打卡界面按键:确认上班 */
+void app_state_punch_at(int hour, int min); /* 按指定上班时间打卡(调时用) */
 bool app_state_remind_active(void);    /* 提醒是否进行中(下班/番茄钟到点) */
 void app_state_set_ip(const char *ip); /* 网络层连上后回填 IP */
+void app_state_init(void);             /* 启动时从 NVS 恢复打卡(跨天自动失效) */

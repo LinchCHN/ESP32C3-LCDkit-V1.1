@@ -8,6 +8,8 @@ typedef struct {
     float hours_per_day;    /* 每天工作时长(小时) */
     int   work_start_min;   /* 上班时间,当天分钟数(9:00=540) */
     int   work_end_min;     /* 下班时间,当天分钟数(18:00=1080) */
+    int   lunch_min;        /* 午休时长(分钟) */
+    int   lunch_counts;     /* 午休是否算入工时:0=不算(下班顺延午休),1=算入(不顺延) */
 } salary_cfg_t;
 
 void cfg_load(void);                  /* 启动时从 NVS 读(无则用默认) */

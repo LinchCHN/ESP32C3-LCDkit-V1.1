@@ -43,4 +43,5 @@ const screen_t screen_info = {
     .create   = screen_info_create,
     .update   = screen_info_update,
     .on_press = screen_info_on_press,
+    .on_long  = NULL,               /* 信息界面长按无操作 */
 };

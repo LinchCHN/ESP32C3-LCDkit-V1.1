@@ -77,4 +77,5 @@ const screen_t screen_main = {
     .create   = screen_main_create,
     .update   = screen_main_update,
     .on_press = screen_main_on_press,
+    .on_long  = NULL,               /* 主界面长按无操作(短按=番茄钟) */
 };

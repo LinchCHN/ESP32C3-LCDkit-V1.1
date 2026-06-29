@@ -12,6 +12,8 @@ static const salary_cfg_t CFG_DEFAULT = {
     .hours_per_day  = 8.0f,       /* 每天 8 小时 */
     .work_start_min = 9 * 60,     /* 9:00 上班 */
     .work_end_min   = 18 * 60,    /* 18:00 下班 */
+    .lunch_min      = 60,         /* 午休 60 分钟 */
+    .lunch_counts   = 0,          /* 不算入工时 → 下班顺延午休 */
 };
 
 void cfg_load(void)
@@ -28,11 +30,12 @@ void cfg_load(void)
         }
         nvs_close(h);
     }
-    ESP_LOGI(TAG, "加载参数(%s): 月薪%.0f %d天 %.1fh 上班%02d:%02d 下班%02d:%02d",
+    ESP_LOGI(TAG, "加载参数(%s): 月薪%.0f %d天 %.1fh 上班%02d:%02d 下班%02d:%02d 午休%d分(%s)",
              from_nvs ? "NVS" : "默认",
              s_cfg.salary_month, s_cfg.work_days, s_cfg.hours_per_day,
              s_cfg.work_start_min / 60, s_cfg.work_start_min % 60,
-             s_cfg.work_end_min / 60,   s_cfg.work_end_min % 60);
+             s_cfg.work_end_min / 60,   s_cfg.work_end_min % 60,
+             s_cfg.lunch_min, s_cfg.lunch_counts ? "算入" : "顺延");
 }
 
 void cfg_set(const salary_cfg_t *c)
@@ -44,10 +47,11 @@ void cfg_set(const salary_cfg_t *c)
         nvs_commit(h);
         nvs_close(h);
     }
-    ESP_LOGI(TAG, "参数已保存: 月薪%.0f %d天 %.1fh 上班%02d:%02d 下班%02d:%02d",
+    ESP_LOGI(TAG, "参数已保存: 月薪%.0f %d天 %.1fh 上班%02d:%02d 下班%02d:%02d 午休%d分(%s)",
              s_cfg.salary_month, s_cfg.work_days, s_cfg.hours_per_day,
              s_cfg.work_start_min / 60, s_cfg.work_start_min % 60,
-             s_cfg.work_end_min / 60,   s_cfg.work_end_min % 60);
+             s_cfg.work_end_min / 60,   s_cfg.work_end_min % 60,
+             s_cfg.lunch_min, s_cfg.lunch_counts ? "算入" : "顺延");
 }
 
 const salary_cfg_t *cfg_get(void) { return &s_cfg; }
