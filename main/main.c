@@ -43,6 +43,8 @@
 #include "web_server.h"
 #include "app_state.h"
 #include "ui_manager.h"
+#include "ai_cfg.h"
+#include "ai_usage.h"
 
 static const char *TAG = "C3_LCDKIT";
 
@@ -204,6 +206,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ev->ip_info.ip));
         app_state_set_ip(ip);
         ESP_LOGI(TAG, "WiFi 已连上: %s  IP=%s  SNTP 对时中...", s_wifi_list[s_wifi_idx].ssid, ip);
+        ai_usage_refresh();          /* 连上后立即查一次 AI 额度 */
         if (!s_web_started) { web_server_start(); s_web_started = true; }
     }
 }
@@ -264,6 +267,8 @@ void app_main(void)
     network_start();          /* WiFi + SNTP(连上后圆环按真实时间走) */
     cfg_load();               /* 薪资参数(NVS,可用手机 Web 页改) */
     app_state_init();         /* 从 NVS 恢复今日打卡(跨天自动失效) */
+    ai_cfg_load();            /* AI 额度配置(NVS) */
+    ai_usage_start();         /* 启动 AI 额度查询(后台任务,5 分钟一次) */
 
     init_led();
     xTaskCreate(encoder_led_task, "enc_led", 3072, NULL, 5, NULL);

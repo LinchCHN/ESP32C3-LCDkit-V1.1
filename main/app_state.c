@@ -22,7 +22,7 @@ static app_view_t s_view;
 
 /* —— 计时/状态 —— */
 static float   s_earned = 0;          /* 今日已赚(累积) */
-static int64_t s_last_us = 0;         /* 上次累积时刻(微秒) */
+/* 今日已赚改用 worked_sec × per_sec 每 tick 重算,不再需要累积时刻 */
 static bool    s_last_working = false;
 
 /* —— 打卡 —— */
@@ -53,6 +53,14 @@ void app_state_set_ip(const char *ip)
     } else {
         s_view.ip[0] = 0;
     }
+}
+
+void app_state_set_pc(int cpu, int gpu, int mem)
+{
+    s_view.pc_cpu = cpu;
+    s_view.pc_gpu = gpu;
+    s_view.pc_mem = mem;
+    s_view.pc_ok = true;
 }
 
 static void trigger_remind(time_t now)
@@ -156,18 +164,8 @@ void app_state_tick(void)
         else                                            { worked_sec = 0;                          working = false; }
     }
 
-    /* —— 累积今日薪资(working 时按 dt 累加) —— */
-    int64_t now_us = esp_timer_get_time();
-    if (s_last_us == 0) {
-        s_earned = worked_sec * cfg_per_sec();
-        s_last_us = now_us;
-    } else {
-        float dt = (now_us - s_last_us) / 1000000.0f;
-        s_last_us = now_us;
-        if (working && dt > 0 && dt < 10.0f) {
-            s_earned += cfg_per_sec() * dt;
-        }
-    }
+    /* —— 今日已赚 = 从上班到现在的秒数 × 每秒薪资(每 tick 重算,从上班算) —— */
+    s_earned = worked_sec * cfg_per_sec();
 
     /* —— 下班提醒边沿(working -> off) —— */
     if (s_last_working && !working) {
@@ -283,8 +281,7 @@ void app_state_punch_at(int hour, int min)
     t.tm_hour = hour; t.tm_min = min; t.tm_sec = 0;
     s_punch_start = mktime(&t);
     s_punch_date  = today_key();
-    s_earned  = 0;        /* 以打卡为今日计时的零点 */
-    s_last_us = 0;
+    /* s_earned 由 tick 按 worked_sec × per_sec 自动重算,无需重置 */
     save_punch();
     int lunch_extra = c->lunch_counts ? 0 : c->lunch_min;
     time_t pend = s_punch_start + (time_t)(c->hours_per_day * 3600.0f)

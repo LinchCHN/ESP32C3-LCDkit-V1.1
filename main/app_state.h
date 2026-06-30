@@ -25,6 +25,8 @@ typedef struct {
     int   work_days;
     float hours_per_day;
     char  ip[16];              /* 本机 IP(手机配参用),空串=未连 */
+    int   pc_cpu, pc_gpu, pc_mem;  /* 电脑占用%(由 /push 推送) */
+    bool  pc_ok;               /* 是否收到过电脑推送 */
 } app_view_t;
 
 const app_view_t *app_state_get(void);
@@ -34,4 +36,5 @@ void app_state_punch(void);            /* 打卡界面按键:确认上班 */
 void app_state_punch_at(int hour, int min); /* 按指定上班时间打卡(调时用) */
 bool app_state_remind_active(void);    /* 提醒是否进行中(下班/番茄钟到点) */
 void app_state_set_ip(const char *ip); /* 网络层连上后回填 IP */
+void app_state_set_pc(int cpu, int gpu, int mem);  /* 电脑推送占用 */
 void app_state_init(void);             /* 启动时从 NVS 恢复打卡(跨天自动失效) */
